@@ -1,3 +1,4 @@
+from io import TextIOWrapper
 import click
 from sqlalchemy import create_engine,Table, Column, Integer, String
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
@@ -23,6 +24,19 @@ def smart_open(filename=None, mode='w'):
         yield fh
     finally:
         if fh is not sys.stdout:
+            fh.close()
+
+@contextlib.contextmanager
+def smart_in(filename=None, mode='r'):
+    if type(filename) != TextIOWrapper:
+        fh = open(filename, 'r')
+    else:
+        fh = filename
+
+    try:
+        yield fh
+    finally:
+        if type(filename) != TextIOWrapper:
             fh.close()
 
 Base = declarative_base()
@@ -124,8 +138,8 @@ def store(fasta_path, db_path, dict_path):
 
 @cli.command()
 @cloup.option('--db-path', required=True)
-@cloup.option('--fasta-path')
-@cloup.option('--strains-path')
+@cloup.option('--fasta-path',help='Optional, if not provided, will print to stdout')
+@cloup.option('--strains-path',help='Optional, if not provided, will read from stdin')
 @cloup.option('--debug', is_flag=True, default=False)
 def retrieve(db_path, fasta_path, strains_path, debug):
     """Read in a db and writes out a fasta"""
@@ -134,9 +148,10 @@ def retrieve(db_path, fasta_path, strains_path, debug):
     # Turn strains file into list of strains
     # Query sequences in list of strains
     # Load strains.txt and turn into list of strains
-    strains = None
+    if not strains_path or strains_path == '-':
+        strains_path = click.get_text_stream('stdin')
     if strains_path:
-        with open(strains_path, 'r') as f:
+        with smart_in(strains_path, 'r') as f:
             strains = f.read().splitlines()
     write_fasta(session, fasta_path, strains)
     close_session(session)
