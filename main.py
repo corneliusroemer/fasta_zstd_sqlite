@@ -52,6 +52,18 @@ def add_fasta(session, strain, sequence):
 def close_session(session):
     session.close()
 
+def write_fasta(session, fasta_path):
+    sequences = session.query(Fasta).all()
+    with open(fasta_path, "w") as fp:
+        for sequence in sequences:
+            record = SeqRecord(
+                Seq(decompress(sequence.sequence).decode('ascii')),
+                id=sequence.strain,
+                description=''
+            )
+            SeqIO.write(record, fp, "fasta-2line")
+            print(sequence.strain)
+
 @click.group()
 def cli():
     pass
@@ -73,19 +85,10 @@ def store(fasta_path, db_path):
 @click.option('--db-path', required=True)
 @click.option('--fasta-path', required=True)
 def retrieve(db_path, fasta_path):
-    """Program that reads in a db and writes out a fasta"""
+    """Read in a db and writes out a fasta"""
     engine = connect_to_db(db_path)
     session = start_session(engine)
-    sequences = session.query(Fasta).all()
-    with open(fasta_path, "w") as fp:
-        for sequence in sequences:
-            record = SeqRecord(
-                Seq(decompress(sequence.sequence).decode('ascii')),
-                id=sequence.strain,
-                description=''
-            )
-            SeqIO.write(record, fp, "fasta-2line")
-            print(sequence.strain)
+    write_fasta(session, fasta_path)
     close_session(session)
 
 if __name__ == '__main__':
