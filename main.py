@@ -17,7 +17,7 @@ from Bio.SeqRecord import SeqRecord
 
 import sqlalchemy
 
-from pyzstd import compress, decompress
+from pyzstd import compress, decompress, train_dict, finalize_dict
 
 Base = declarative_base()
 
@@ -89,6 +89,24 @@ def retrieve(db_path, fasta_path):
     engine = connect_to_db(db_path)
     session = start_session(engine)
     write_fasta(session, fasta_path)
+    close_session(session)
+
+@cli.command()
+@click.option('--db-path', required=True)
+@click.option('--dict-path', required=True)
+def generate_dict(db_path,dict_path):
+    """Create dictionary from provided database"""
+    engine = connect_to_db(db_path)
+    session = start_session(engine)
+    def samples():
+        sequences = session.query(Fasta).all()
+        for sequence in sequences:
+            yield bytes(decompress(sequence.sequence).decode('ascii'),'ascii')
+    dict_size = 100*1024
+    raw_dict = train_dict(samples(), dict_size)
+    final_dict = finalize_dict(raw_dict, samples(), dict_size, 3)
+    with open(dict_path, 'wb') as fp:
+        fp.write(final_dict.dict_content)
     close_session(session)
 
 if __name__ == '__main__':
