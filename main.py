@@ -69,11 +69,14 @@ def add_fasta(session, strain, sequence, zd=None):
     session.commit()
 
 def write_fasta(session, fasta_path):
+    provided_dict = session.query(Zstd_dict_table).one_or_none()
+    if provided_dict:
+        zd = ZstdDict(provided_dict.dictionary)
     sequences = session.query(Fasta).all()
     with open(fasta_path, "w") as fp:
         for sequence in sequences:
             record = SeqRecord(
-                Seq(decompress(sequence.sequence).decode('UTF-8')),
+                Seq(decompress(sequence.sequence,zstd_dict=zd).decode('UTF-8')),
                 id=sequence.strain,
                 description=''
             )
@@ -99,7 +102,6 @@ def store(fasta_path, db_path, dict_path):
         with open(dict_path, 'rb') as f:
             file_content = f.read()
         zd = ZstdDict(file_content)
-        #TODO Store the dictionary in the database
         store_dict(session,zd)
     for record in SeqIO.parse(fasta_path, "fasta"):
         add_fasta(session, record.id, str(record.seq), zd)
