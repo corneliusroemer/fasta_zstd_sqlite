@@ -11,6 +11,21 @@ from pyzstd import ZstdDict, compress, decompress, train_dict, finalize_dict
 import cloup
 from cloup import group, command, option, option_group
 from cloup.constraints import require_one
+import sys
+import contextlib
+
+@contextlib.contextmanager
+def smart_open(filename=None, mode='w'):
+    if filename and filename != '-':
+        fh = open(filename, 'w')
+    else:
+        fh = sys.stdout
+
+    try:
+        yield fh
+    finally:
+        if fh is not sys.stdout:
+            fh.close()
 
 Base = declarative_base()
 
@@ -64,13 +79,14 @@ def add_fasta(session, strain, sequence, zd=None):
 
 def write_fasta(session, fasta_path, strains=None):
     provided_dict = session.query(Zstd_dict_table).one_or_none()
+    zd = None
     if provided_dict:
         zd = ZstdDict(provided_dict.dictionary)
     if strains:
         sequences = session.query(Fasta).filter(Fasta.strain.in_(strains)).all()
     else:
         sequences = session.query(Fasta).all()
-    with open(fasta_path, "w") as fp:
+    with smart_open(fasta_path, "w") as fp:
         for sequence in sequences:
             record = SeqRecord(
                 Seq(decompress(sequence.sequence,zstd_dict=zd).decode('UTF-8')),
@@ -115,7 +131,7 @@ def store(fasta_path, db_path, dict_path, stdin):
 
 @cli.command()
 @cloup.option('--db-path', required=True)
-@cloup.option('--fasta-path', required=True)
+@cloup.option('--fasta-path')
 @cloup.option('--strains-path')
 @cloup.option('--debug', is_flag=True, default=False)
 def retrieve(db_path, fasta_path, strains_path, debug):
