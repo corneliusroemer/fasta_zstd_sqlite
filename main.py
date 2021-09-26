@@ -13,9 +13,9 @@ from cloup.constraints import require_one
 import sys
 import contextlib
 
-COMP_LEVEL = 13
-DICT_SIZE = 64*1024
-DICT_SAMPLE_NUMBER = 2000
+COMP_LEVEL = 0
+DICT_SIZE = 128*1024
+DICT_SAMPLE_NUMBER = 1000
 
 @contextlib.contextmanager
 def smart_open(filename=None, mode='w'):
@@ -89,9 +89,37 @@ def store_dict(session, zd):
     session.add(zd_dict)
     session.commit()
 
-def add_fasta(session, strain, sequence, zd=None, level=COMP_LEVEL):
-    fasta = Fasta(strain=strain, sequence=compress(sequence.encode('UTF-8'),level,zstd_dict=zd))
-    session.add(fasta)
+def load_dict(session,dict_path) -> ZstdDict:
+    with open(dict_path, 'rb') as f:
+        file_content = f.read()
+    zd = ZstdDict(file_content)
+    store_dict(session,zd)
+    return zd
+
+def add_fasta(session, fasta_path, dict_path=None, zd=None, level=COMP_LEVEL, sample_number=None):  
+    if not fasta_path or fasta_path == '-':
+        fasta_path = click.get_text_stream('stdin')
+    if dict_path is not None:
+        zd = load_dict(dict_path)
+    for count, record in enumerate(SeqIO.parse(fasta_path, "fasta")):
+        if sample_number is not None and count == sample_number:
+            gen_dict(level=level,size=DICT_SIZE,number=sample_number,passed_session=session)
+            provided_dict = session.query(Zstd_dict_table).one_or_none()
+            zd = ZstdDict(provided_dict.dictionary)
+            for sequence in session.query(Fasta):
+                sequence.sequence = compress(decompress(sequence.sequence),level,zstd_dict=zd)
+            session.commit()
+            
+        if zd is None:
+            fasta = Fasta(strain=record.id, sequence=compress(str(record.seq).encode('UTF-8'),level))
+        else:
+            fasta = Fasta(strain=record.id, sequence=compress(str(record.seq).encode('UTF-8'),level,zstd_dict=zd))
+        
+        if count % 1000 == 0:
+            session.commit()
+            print(f"Sequence count: {count}")
+        
+        session.add(fasta)
 
 def write_fasta(session, fasta_path, strains=None):
     provided_dict = session.query(Zstd_dict_table).one_or_none()
@@ -127,16 +155,7 @@ def store(fasta_path, db_path, dict_path,level):
     drop_all(engine)
     create_tables(engine)
     session = start_session(engine)
-    zd = None
-    if dict_path:
-        with open(dict_path, 'rb') as f:
-            file_content = f.read()
-        zd = ZstdDict(file_content)
-        store_dict(session,zd)
-    if not fasta_path or fasta_path == '-':
-        fasta_path = click.get_text_stream('stdin')
-    for record in SeqIO.parse(fasta_path, "fasta"):
-        add_fasta(session, record.id, str(record.seq), zd, level)
+    add_fasta(session=session, dict_path=dict_path, fasta_path=fasta_path, level=level, sample_number=1000)
     session.commit()
     close_session(session)
     vacuum(engine)
@@ -150,7 +169,8 @@ def retrieve(db_path, fasta_path, strains_path, debug):
     """Read in a db and writes out a fasta"""
     engine = connect_to_db(db_path, debug)
     session = start_session(engine)
-    if not strains_path or strains_path == '-':
+    strains = None
+    if strains_path == '-':
         strains_path = click.get_text_stream('stdin')
     if strains_path:
         with smart_in(strains_path, 'r') as f:
@@ -158,16 +178,14 @@ def retrieve(db_path, fasta_path, strains_path, debug):
     write_fasta(session, fasta_path, strains)
     close_session(session)
 
-@cli.command()
-@cloup.option('--db-path', required=True)
-@cloup.option('--dict-path', required=True)
-@cloup.option('--level', default=COMP_LEVEL)
-@cloup.option('--size', default=DICT_SIZE)
-@cloup.option('--number', default=DICT_SAMPLE_NUMBER)
-def generate_dict(db_path,dict_path,level,size,number):
+def gen_dict(db_path=None,dict_path=None,level=COMP_LEVEL,size=DICT_SIZE,number=DICT_SAMPLE_NUMBER,passed_session=None):    
     """Create dictionary from provided database\nRequires uncompressed sequences"""
-    engine = connect_to_db(db_path)
-    session = start_session(engine)
+    if not passed_session:
+        engine = connect_to_db(db_path)
+        session = start_session(engine)
+    else:
+        session = passed_session
+
     provided_dict = session.query(Zstd_dict_table).one_or_none()
     zd = None
     if provided_dict:
@@ -181,9 +199,27 @@ def generate_dict(db_path,dict_path,level,size,number):
             count += 1
     raw_dict = train_dict(samples(), size)
     final_dict = finalize_dict(raw_dict, samples(), size, level)
-    with open(dict_path, 'wb') as fp:
-        fp.write(final_dict.dict_content)
-    close_session(session)
+    print(final_dict)
+
+    # if no dict in db: store it
+    if not provided_dict:
+        store_dict(session, final_dict)
+        session.commit()
+
+    if not passed_session:
+        with open(dict_path, 'wb') as fp:
+            fp.write(final_dict.dict_content)
+        close_session(session)
+
+@cli.command()
+@cloup.option('--db-path', required=True)
+@cloup.option('--dict-path', required=True)
+@cloup.option('--level', default=COMP_LEVEL)
+@cloup.option('--size', default=DICT_SIZE)
+@cloup.option('--number', default=DICT_SAMPLE_NUMBER)
+def generate_dict(db_path=None,dict_path=None,level=COMP_LEVEL,size=DICT_SIZE,number=DICT_SAMPLE_NUMBER,passed_session=None):
+    gen_dict(db_path=db_path,dict_path=dict_path,level=level,size=size,number=number,passed_session=passed_session)
+
 
 if __name__ == '__main__':
     cli()
