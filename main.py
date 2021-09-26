@@ -6,12 +6,16 @@ from sqlalchemy.sql.sqltypes import BLOB
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from pyzstd import ZstdDict, compress, decompress, train_dict, finalize_dict
+from pyzstd import ZstdDict, compress, compressionLevel_values, decompress, train_dict, finalize_dict
 import cloup
 from cloup import group, command, option, option_group
 from cloup.constraints import require_one
 import sys
 import contextlib
+
+COMP_LEVEL = 13
+DICT_SIZE = 64*1024
+DICT_SAMPLE_NUMBER = 2000
 
 @contextlib.contextmanager
 def smart_open(filename=None, mode='w'):
@@ -85,8 +89,8 @@ def store_dict(session, zd):
     session.add(zd_dict)
     session.commit()
 
-def add_fasta(session, strain, sequence, zd=None):
-    fasta = Fasta(strain=strain, sequence=compress(sequence.encode('UTF-8'),zstd_dict=zd))
+def add_fasta(session, strain, sequence, zd=None, level=COMP_LEVEL):
+    fasta = Fasta(strain=strain, sequence=compress(sequence.encode('UTF-8'),level,zstd_dict=zd))
     session.add(fasta)
 
 def write_fasta(session, fasta_path, strains=None):
@@ -115,7 +119,8 @@ def cli():
 @cloup.option('--fasta-path')
 @cloup.option('--db-path', required=True)
 @cloup.option('--dict-path')
-def store(fasta_path, db_path, dict_path):
+@cloup.option('--level',default=COMP_LEVEL)
+def store(fasta_path, db_path, dict_path,level):
     """Program that reads in a fasta and stores it in sqlite, sequence by sequence"""
     #TODO give option to autogenerate dictionary
     engine = connect_to_db(db_path)
@@ -131,7 +136,7 @@ def store(fasta_path, db_path, dict_path):
     if not fasta_path or fasta_path == '-':
         fasta_path = click.get_text_stream('stdin')
     for record in SeqIO.parse(fasta_path, "fasta"):
-        add_fasta(session, record.id, str(record.seq), zd)
+        add_fasta(session, record.id, str(record.seq), zd, level)
     session.commit()
     close_session(session)
     vacuum(engine)
@@ -145,9 +150,6 @@ def retrieve(db_path, fasta_path, strains_path, debug):
     """Read in a db and writes out a fasta"""
     engine = connect_to_db(db_path, debug)
     session = start_session(engine)
-    # Turn strains file into list of strains
-    # Query sequences in list of strains
-    # Load strains.txt and turn into list of strains
     if not strains_path or strains_path == '-':
         strains_path = click.get_text_stream('stdin')
     if strains_path:
@@ -159,17 +161,26 @@ def retrieve(db_path, fasta_path, strains_path, debug):
 @cli.command()
 @cloup.option('--db-path', required=True)
 @cloup.option('--dict-path', required=True)
-def generate_dict(db_path,dict_path):
-    """Create dictionary from provided database"""
+@cloup.option('--level', default=COMP_LEVEL)
+@cloup.option('--size', default=DICT_SIZE)
+@cloup.option('--number', default=DICT_SAMPLE_NUMBER)
+def generate_dict(db_path,dict_path,level,size,number):
+    """Create dictionary from provided database\nRequires uncompressed sequences"""
     engine = connect_to_db(db_path)
     session = start_session(engine)
+    provided_dict = session.query(Zstd_dict_table).one_or_none()
+    zd = None
+    if provided_dict:
+        zd = ZstdDict(provided_dict.dictionary)
     def samples():
+        count = 0
         sequences = session.query(Fasta).all()
         for sequence in sequences:
-            yield bytes(decompress(sequence.sequence).decode('UTF-8'),'UTF-8')
-    dict_size = 100*1024
-    raw_dict = train_dict(samples(), dict_size)
-    final_dict = finalize_dict(raw_dict, samples(), dict_size, 3)
+            if count < number:
+                yield bytes(decompress(sequence.sequence,zstd_dict=zd).decode('UTF-8'),'UTF-8')
+            count += 1
+    raw_dict = train_dict(samples(), size)
+    final_dict = finalize_dict(raw_dict, samples(), size, level)
     with open(dict_path, 'wb') as fp:
         fp.write(final_dict.dict_content)
     close_session(session)
