@@ -1,24 +1,13 @@
-# 1. Specify the UI/API
-# 2. Implement API step by step
-# 3. Use SQLAlchemy to connect to the database
-
 import click
 
-from sqlalchemy import create_engine
-from sqlalchemy import MetaData
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Table, Column, Integer, String
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import relationship
-from sqlalchemy.orm import Session
+import sqlalchemy
+from sqlalchemy import create_engine,Table, Column, Integer, String
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
+from sqlalchemy.sql.sqltypes import BLOB
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-
-import sqlalchemy
-
 from pyzstd import ZstdDict, compress, decompress, train_dict, finalize_dict
-from sqlalchemy.sql.sqltypes import BLOB
 
 Base = declarative_base()
 
@@ -84,7 +73,6 @@ def write_fasta(session, fasta_path, strains=None):
                 description=''
             )
             SeqIO.write(record, fp, "fasta-2line")
-            print(sequence.strain)
 
 @click.group()
 def cli():
