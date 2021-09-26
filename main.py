@@ -28,13 +28,16 @@ class Zstd_dict_table(Base):
     def __repr__(self):
         return f"Dictionary(id={self.id!r}, name={ZstdDict(self.dictionary)!r})"
 
-def connect_to_db(path):
-    return create_engine(f"sqlite+pysqlite:///{path}")
+def vacuum(engine):
+    with engine.begin() as conn:
+        conn.execute("VACUUM")
+
+def connect_to_db(path, debug=False):
+    return create_engine(f"sqlite+pysqlite:///{path}",echo=debug)
 
 def drop_all(engine):
     Base.metadata.drop_all(engine)
-    with engine.begin() as conn:
-        conn.execute("VACUUM")
+    vacuum(engine)
 
 def create_tables(engine):
     Base.metadata.create_all(engine)
@@ -55,7 +58,6 @@ def store_dict(session, zd):
 def add_fasta(session, strain, sequence, zd=None):
     fasta = Fasta(strain=strain, sequence=compress(sequence.encode('UTF-8'),zstd_dict=zd))
     session.add(fasta)
-    session.commit()
 
 def write_fasta(session, fasta_path, strains=None):
     provided_dict = session.query(Zstd_dict_table).one_or_none()
@@ -84,6 +86,7 @@ def cli():
 @click.option('--dict-path')
 def store(fasta_path, db_path, dict_path):
     """Program that reads in a fasta and stores it in sqlite, sequence by sequence"""
+    #TODO read fasta from stdin
     engine = connect_to_db(db_path)
     drop_all(engine)
     create_tables(engine)
@@ -96,15 +99,18 @@ def store(fasta_path, db_path, dict_path):
         store_dict(session,zd)
     for record in SeqIO.parse(fasta_path, "fasta"):
         add_fasta(session, record.id, str(record.seq), zd)
+    session.commit()
     close_session(session)
+    vacuum(engine)
 
 @cli.command()
 @click.option('--db-path', required=True)
 @click.option('--fasta-path', required=True)
 @click.option('--strains-path')
-def retrieve(db_path, fasta_path, strains_path):
+@click.option('--debug', is_flag=True, default=False)
+def retrieve(db_path, fasta_path, strains_path, debug):
     """Read in a db and writes out a fasta"""
-    engine = connect_to_db(db_path)
+    engine = connect_to_db(db_path, debug)
     session = start_session(engine)
     # Turn strains file into list of strains
     # Query sequences in list of strains
