@@ -1,6 +1,4 @@
 import click
-
-import sqlalchemy
 from sqlalchemy import create_engine,Table, Column, Integer, String
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
 from sqlalchemy.sql.sqltypes import BLOB
@@ -100,17 +98,12 @@ def cli():
     pass
 
 @cli.command()
-@option_group(
-    "Fasta input",
-    option('--fasta-path'),
-    option('--stdin',is_flag=True, default=False),
-    constraint=require_one,
-)
+@cloup.option('--fasta-path')
 @cloup.option('--db-path', required=True)
 @cloup.option('--dict-path')
-def store(fasta_path, db_path, dict_path, stdin):
+def store(fasta_path, db_path, dict_path):
     """Program that reads in a fasta and stores it in sqlite, sequence by sequence"""
-    #TODO read fasta from stdin
+    #TODO give option to autogenerate dictionary
     engine = connect_to_db(db_path)
     drop_all(engine)
     create_tables(engine)
@@ -121,7 +114,7 @@ def store(fasta_path, db_path, dict_path, stdin):
             file_content = f.read()
         zd = ZstdDict(file_content)
         store_dict(session,zd)
-    if stdin:
+    if not fasta_path or fasta_path == '-':
         fasta_path = click.get_text_stream('stdin')
     for record in SeqIO.parse(fasta_path, "fasta"):
         add_fasta(session, record.id, str(record.seq), zd)
