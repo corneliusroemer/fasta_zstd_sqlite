@@ -4,5 +4,5 @@ __pycache__/
 *.zst
 *dict*
 env/
-store.egg-info/
+*.egg-info/
 *.txt
