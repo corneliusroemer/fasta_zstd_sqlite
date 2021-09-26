@@ -68,11 +68,14 @@ def add_fasta(session, strain, sequence, zd=None):
     session.add(fasta)
     session.commit()
 
-def write_fasta(session, fasta_path):
+def write_fasta(session, fasta_path, strains=None):
     provided_dict = session.query(Zstd_dict_table).one_or_none()
     if provided_dict:
         zd = ZstdDict(provided_dict.dictionary)
-    sequences = session.query(Fasta).all()
+    if strains:
+        sequences = session.query(Fasta).filter(Fasta.strain.in_(strains)).all()
+    else:
+        sequences = session.query(Fasta).all()
     with open(fasta_path, "w") as fp:
         for sequence in sequences:
             record = SeqRecord(
@@ -110,11 +113,18 @@ def store(fasta_path, db_path, dict_path):
 @cli.command()
 @click.option('--db-path', required=True)
 @click.option('--fasta-path', required=True)
-def retrieve(db_path, fasta_path):
+@click.option('--strains-path')
+def retrieve(db_path, fasta_path, strains_path):
     """Read in a db and writes out a fasta"""
     engine = connect_to_db(db_path)
     session = start_session(engine)
-    write_fasta(session, fasta_path)
+    # Turn strains file into list of strains
+    # Query sequences in list of strains
+    # Load strains.txt and turn into list of strains
+    if strains_path:
+        with open(strains_path, 'r') as f:
+            strains = f.read().splitlines()
+    write_fasta(session, fasta_path, strains)
     close_session(session)
 
 @cli.command()
