@@ -8,6 +8,9 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from pyzstd import ZstdDict, compress, decompress, train_dict, finalize_dict
+import cloup
+from cloup import group, command, option, option_group
+from cloup.constraints import require_one
 
 Base = declarative_base()
 
@@ -76,15 +79,20 @@ def write_fasta(session, fasta_path, strains=None):
             )
             SeqIO.write(record, fp, "fasta-2line")
 
-@click.group()
+@cloup.group()
 def cli():
     pass
 
 @cli.command()
-@click.option('--fasta-path', required=True, help='Fasta should be xz compressed')
-@click.option('--db-path', required=True)
-@click.option('--dict-path')
-def store(fasta_path, db_path, dict_path):
+@option_group(
+    "Fasta input",
+    option('--fasta-path'),
+    option('--stdin',is_flag=True, default=False),
+    constraint=require_one,
+)
+@cloup.option('--db-path', required=True)
+@cloup.option('--dict-path')
+def store(fasta_path, db_path, dict_path, stdin):
     """Program that reads in a fasta and stores it in sqlite, sequence by sequence"""
     #TODO read fasta from stdin
     engine = connect_to_db(db_path)
@@ -97,6 +105,8 @@ def store(fasta_path, db_path, dict_path):
             file_content = f.read()
         zd = ZstdDict(file_content)
         store_dict(session,zd)
+    if stdin:
+        fasta_path = click.get_text_stream('stdin')
     for record in SeqIO.parse(fasta_path, "fasta"):
         add_fasta(session, record.id, str(record.seq), zd)
     session.commit()
@@ -104,10 +114,10 @@ def store(fasta_path, db_path, dict_path):
     vacuum(engine)
 
 @cli.command()
-@click.option('--db-path', required=True)
-@click.option('--fasta-path', required=True)
-@click.option('--strains-path')
-@click.option('--debug', is_flag=True, default=False)
+@cloup.option('--db-path', required=True)
+@cloup.option('--fasta-path', required=True)
+@cloup.option('--strains-path')
+@cloup.option('--debug', is_flag=True, default=False)
 def retrieve(db_path, fasta_path, strains_path, debug):
     """Read in a db and writes out a fasta"""
     engine = connect_to_db(db_path, debug)
@@ -123,8 +133,8 @@ def retrieve(db_path, fasta_path, strains_path, debug):
     close_session(session)
 
 @cli.command()
-@click.option('--db-path', required=True)
-@click.option('--dict-path', required=True)
+@cloup.option('--db-path', required=True)
+@cloup.option('--dict-path', required=True)
 def generate_dict(db_path,dict_path):
     """Create dictionary from provided database"""
     engine = connect_to_db(db_path)
