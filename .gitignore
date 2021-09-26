@@ -1,2 +1,8 @@
 *.db
 /*.fasta
+__pycache__/
+*.zst
+*dict*
+env/
+store.egg-info/
+*.txt
