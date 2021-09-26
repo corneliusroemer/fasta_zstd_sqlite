@@ -30,12 +30,22 @@ class Fasta(Base):
 
     def __repr__(self):
         return f"Sequence(strain={self.strain!r}, name={self.sequence!r})"
+class Zstd_dict_table(Base):
+    __tablename__ = 'zstd_dict'
+
+    id = Column(String, primary_key=True)
+    dictionary = Column(BLOB)
+
+    def __repr__(self):
+        return f"Dictionary(id={self.id!r}, name={ZstdDict(self.dictionary)!r})"
 
 def connect_to_db(path):
     return create_engine(f"sqlite+pysqlite:///{path}")
 
 def drop_all(engine):
-    Base.metadata.drop_all(engine, checkfirst=True)
+    Base.metadata.drop_all(engine)
+    with engine.begin() as conn:
+        conn.execute("VACUUM")
 
 def create_tables(engine):
     Base.metadata.create_all(engine)
@@ -46,6 +56,12 @@ def start_session(engine)->Session:
 
 def close_session(session):
     session.close()
+
+def store_dict(session, zd):
+    """Store dictionary in table Zstd_dict"""
+    zd_dict = Zstd_dict_table(id=zd.dict_id, dictionary=zd.dict_content)
+    session.add(zd_dict)
+    session.commit()
 
 def add_fasta(session, strain, sequence, zd=None):
     fasta = Fasta(strain=strain, sequence=compress(sequence.encode('UTF-8'),zstd_dict=zd))
@@ -83,6 +99,8 @@ def store(fasta_path, db_path, dict_path):
         with open(dict_path, 'rb') as f:
             file_content = f.read()
         zd = ZstdDict(file_content)
+        #TODO Store the dictionary in the database
+        store_dict(session,zd)
     for record in SeqIO.parse(fasta_path, "fasta"):
         add_fasta(session, record.id, str(record.seq), zd)
     close_session(session)
