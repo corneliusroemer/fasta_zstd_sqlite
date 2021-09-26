@@ -17,7 +17,8 @@ from Bio.SeqRecord import SeqRecord
 
 import sqlalchemy
 
-from pyzstd import compress, decompress, train_dict, finalize_dict
+from pyzstd import ZstdDict, compress, decompress, train_dict, finalize_dict
+from sqlalchemy.sql.sqltypes import BLOB
 
 Base = declarative_base()
 
@@ -25,13 +26,13 @@ class Fasta(Base):
     __tablename__ = 'fasta'
 
     strain = Column(String, primary_key=True)
-    sequence = Column(String)
+    sequence = Column(BLOB)
 
     def __repr__(self):
         return f"Sequence(strain={self.strain!r}, name={self.sequence!r})"
 
 def connect_to_db(path):
-    return create_engine(f"sqlite+pysqlite:///{path}", echo=True)
+    return create_engine(f"sqlite+pysqlite:///{path}")
 
 def drop_all(engine):
     Base.metadata.drop_all(engine, checkfirst=True)
@@ -43,21 +44,20 @@ def start_session(engine)->Session:
     Session = sessionmaker(bind=engine)
     return Session()
 
-def add_fasta(session, strain, sequence):
-    #TODO encode sequence with zstd
-    fasta = Fasta(strain=strain, sequence=compress(sequence.encode('ascii')))
-    session.add(fasta)
-    session.commit()
-
 def close_session(session):
     session.close()
+
+def add_fasta(session, strain, sequence, zd=None):
+    fasta = Fasta(strain=strain, sequence=compress(sequence.encode('UTF-8'),zstd_dict=zd))
+    session.add(fasta)
+    session.commit()
 
 def write_fasta(session, fasta_path):
     sequences = session.query(Fasta).all()
     with open(fasta_path, "w") as fp:
         for sequence in sequences:
             record = SeqRecord(
-                Seq(decompress(sequence.sequence).decode('ascii')),
+                Seq(decompress(sequence.sequence).decode('UTF-8')),
                 id=sequence.strain,
                 description=''
             )
@@ -71,14 +71,20 @@ def cli():
 @cli.command()
 @click.option('--fasta-path', required=True, help='Fasta should be xz compressed')
 @click.option('--db-path', required=True)
-def store(fasta_path, db_path):
+@click.option('--dict-path')
+def store(fasta_path, db_path, dict_path):
     """Program that reads in a fasta and stores it in sqlite, sequence by sequence"""
     engine = connect_to_db(db_path)
     drop_all(engine)
     create_tables(engine)
     session = start_session(engine)
+    zd = None
+    if dict_path:
+        with open(dict_path, 'rb') as f:
+            file_content = f.read()
+        zd = ZstdDict(file_content)
     for record in SeqIO.parse(fasta_path, "fasta"):
-        add_fasta(session, record.id, str(record.seq))
+        add_fasta(session, record.id, str(record.seq), zd)
     close_session(session)
 
 @cli.command()
@@ -101,7 +107,7 @@ def generate_dict(db_path,dict_path):
     def samples():
         sequences = session.query(Fasta).all()
         for sequence in sequences:
-            yield bytes(decompress(sequence.sequence).decode('ascii'),'ascii')
+            yield bytes(decompress(sequence.sequence).decode('UTF-8'),'UTF-8')
     dict_size = 100*1024
     raw_dict = train_dict(samples(), dict_size)
     final_dict = finalize_dict(raw_dict, samples(), dict_size, 3)
