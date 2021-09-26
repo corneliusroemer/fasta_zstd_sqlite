@@ -121,6 +121,7 @@ def retrieve(db_path, fasta_path, strains_path):
     # Turn strains file into list of strains
     # Query sequences in list of strains
     # Load strains.txt and turn into list of strains
+    strains = None
     if strains_path:
         with open(strains_path, 'r') as f:
             strains = f.read().splitlines()
