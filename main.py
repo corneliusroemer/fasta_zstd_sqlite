@@ -148,7 +148,7 @@ def cli():
 @cloup.option('--db-path', required=True)
 @cloup.option('--dict-path')
 @cloup.option('--level',default=COMP_LEVEL)
-def store(fasta_path, db_path, dict_path,level):
+def insert(fasta_path, db_path, dict_path,level):
     """Program that reads in a fasta and stores it in sqlite, sequence by sequence"""
     #TODO give option to autogenerate dictionary
     engine = connect_to_db(db_path)
@@ -165,7 +165,7 @@ def store(fasta_path, db_path, dict_path,level):
 @cloup.option('--fasta-path',help='Optional, if not provided, will print to stdout')
 @cloup.option('--strains-path',help='Optional, if not provided, will read from stdin')
 @cloup.option('--debug', is_flag=True, default=False)
-def retrieve(db_path, fasta_path, strains_path, debug):
+def query(db_path, fasta_path, strains_path, debug):
     """Read in a db and writes out a fasta"""
     engine = connect_to_db(db_path, debug)
     session = start_session(engine)
