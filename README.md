@@ -48,8 +48,8 @@ head in.fasta | fzs insert --db-path in.fasta.db
 
 Querying records from sqlite db:
 ```
-fzs query --db-path in.fasta.db --strain-names strains.txt  --fasta-path out.fasta
-echo Wuhan-Hu-1 | fzs query --strain-names - --db-path in.fasta.db | less
+fzs query --db-path in.fasta.db --strains-path strains.txt  --fasta-path out.fasta
+echo Wuhan-Hu-1 | fzs query --strains-path - --db-path in.fasta.db | less
 ```
 
 Uncompressing all records back to fasta:

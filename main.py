@@ -100,7 +100,7 @@ def add_fasta(session, fasta_path, dict_path=None, zd=None, level=COMP_LEVEL, sa
     if not fasta_path or fasta_path == '-':
         fasta_path = click.get_text_stream('stdin')
     if dict_path is not None:
-        zd = load_dict(dict_path)
+        zd = load_dict(session,dict_path)
     for count, record in enumerate(SeqIO.parse(fasta_path, "fasta")):
         if sample_number is not None and count == sample_number:
             gen_dict(level=level,size=DICT_SIZE,number=sample_number,passed_session=session)
