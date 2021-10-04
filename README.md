@@ -42,6 +42,7 @@ python3 -m pip install --editable .
 
 Compressing fasta records line by line in sqlite db:
 ```
+xzcat in.fasta.xz | fzs insert --db-path in.fasta.db
 fzs insert --fasta-path in.fasta --db-path in.fasta.db
 head in.fasta | fzs insert --db-path in.fasta.db
 ```
